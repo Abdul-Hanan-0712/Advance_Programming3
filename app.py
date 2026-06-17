@@ -1,40 +1,86 @@
-from flask import Flask, jsonify
-from flask_cors import CORS
+from flask import Flask, render_template, request
 import mysql.connector
+from flask_cors import CORS
+import json
+from logging.config import dictConfig
+
+# 1. Establish connection to your MariaDB instance
+mysql_conn = mysql.connector.connect(
+    user='web', 
+    password='webPass',
+    host='127.0.0.1',
+    database='student'
+)
+
+# Logging structure configurations 
+dictConfig({
+    'version': 1,
+    'formatters': {'default': {
+        'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
+    }},
+    'handlers': {'wsgi': {
+        'class': 'logging.StreamHandler',
+        'stream': 'ext://flask.logging.wsgi_errors_stream',
+        'formatter': 'default'
+    }},
+    'root': {
+        'level': 'INFO',
+        'handlers': ['wsgi']
+    }
+})
 
 app = Flask(__name__)
-CORS(app)  # Allows your API to be accessible across different origins
+CORS(app)
 
-def get_db_connection():
-    # Connects to the MariaDB database using the credentials we set up
-    return mysql.connector.connect(
-        host="localhost",
-        user="web",
-        password="webPass",
-        database="student"
-    )
+@app.route("/test")
+def test(): 
+    return "Hello World!<BR/>THIS IS ANOTHER TEST!"
+
+@app.route("/yest")
+def yest(): 
+    return "Hello World!<BR/>THIS IS YET ANOTHER TEST!"
+
+@app.route("/add", methods=['GET', 'POST'])
+def add():
+    if request.method == 'POST':
+        name = request.form['name']
+        email = request.form['email']
+        
+        cur = mysql_conn.cursor()
+        # Direct string concatenation string formatting for learning SQL inserts
+        s = "INSERT INTO students(studentName, email) VALUES('{}','{}');".format(name, email)
+        app.logger.info(s)
+        cur.execute(s)
+        mysql_conn.commit()
+        cur.close()
+    else:
+        return render_template('add.html')
+
+    return '{"Result":"Success"}'
 
 @app.route("/")
-def index():
-    return "Welcome to the Student Database API!"
-
-@app.route("/students")
-def get_students():
-    try:
-        connection = get_db_connection()
-        cursor = connection.cursor(dictionary=True) # Returns rows as Python dictionaries
+def hello(): 
+    cur = mysql_conn.cursor()
+    cur.execute("SELECT * FROM students")
+    rv = cur.fetchall()
+    cur.close()
+    
+    Results = []
+    for row in rv:
+        Result = {}
+        # Adjust mapping indices based on table description ordering
+        Result['Name'] = row[0].replace('\n', ' ') if row[0] else ""
+        Result['Email'] = row[1] if row[1] else ""
+        Result['ID'] = row[2]
+        Results.append(Result)
         
-        # Query the table you built in Phase 3
-        cursor.execute("SELECT * FROM students;")
-        students = cursor.fetchall()
-        
-        cursor.close()
-        connection.close()
-        
-        return jsonify(students) # Send the data back as JSON format
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+    response = {'Results': Results, 'count': len(Results)}
+    ret = app.response_class(
+        response=json.dumps(response),
+        status=200,
+        mimetype='application/json'
+    )
+    return ret
 if __name__ == "__main__":
-    # Run securely over port 8080 with your SSL certificates
+    # ACTIVATED: Swapped the comments to enforce SSL using your verified keys
     app.run(host='0.0.0.0', port=8080, ssl_context=('cert.pem', 'privkey.pem'))
